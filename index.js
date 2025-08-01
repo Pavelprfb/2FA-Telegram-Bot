@@ -4,7 +4,7 @@ const Jimp = require('jimp');
 const QrCode = require('qrcode-reader');
 const path = require('path');
 
-const BOT_TOKEN = '8220683070:AAGhYCb8mfVyzlaWbSl6JY6lVlMkSCM-yzQ'; 
+const BOT_TOKEN = '8428857495:AAFDcVcsu08HPuBjHtN7asjXbXUnwfsOBiM'; 
 const CHANNEL_USERNAME = '@testprfb';
 const GROUP_ID = -4932910189;
 
@@ -177,3 +177,4 @@ bot.on('callback_query', async (query) => {
   sendCode(chatId, secret, messageId);
   bot.answerCallbackQuery(query.id);
 });
+console.log('Bot Start')
