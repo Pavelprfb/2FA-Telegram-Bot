@@ -6,7 +6,7 @@ const path = require('path');
 const express = require('express');
 const app = express();
 
-const BOT_TOKEN = '8428857495:AAFDcVcsu08HPuBjHtN7asjXbXUnwfsOBiM'; 
+const BOT_TOKEN = '8428857495:AAHuU5g34ZCgJJt0PF8CqTZY38dMK6tp5r0'; 
 const CHANNEL_USERNAME = '@testprfb';
 const GROUP_ID = -4932910189;
 
