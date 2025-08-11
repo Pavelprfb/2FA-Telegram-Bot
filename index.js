@@ -1,20 +1,23 @@
+const express = require('express');
+const bodyParser = require('body-parser');
 const TelegramBot = require('node-telegram-bot-api');
+const mongoose = require('mongoose');
 const { authenticator } = require('otplib');
 const Jimp = require('jimp');
 const QrCode = require('qrcode-reader');
 const path = require('path');
-const express = require('express');
-const mongoose = require('mongoose');
 
-const app = express();
-
-const BOT_TOKEN = '8428857495:AAHuU5g34ZCgJJt0PF8CqTZY38dMK6tp5r0'; 
+const BOT_TOKEN = '8428857495:AAHuU5g34ZCgJJt0PF8CqTZY38dMK6tp5r0'; // এখানে আপনার বট টোকেন দিন
 const CHANNEL_USERNAME = '@testprfb';
 const GROUP_ID = -4932910189;
+const ADMIN_CHAT_ID = 7221622037; // অ্যাডমিন চ্যাট আইডি
 
+// Express App
+const app = express();
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// Bot Setup
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
-const userSecrets = new Map();
-const firstTimeUsers = new Set();
 
 // MongoDB কানেকশন
 mongoose.connect('mongodb+srv://MyDatabase:Cp8rNCfi15IUC6uc@cluster0.kjbloky.mongodb.net/2fa_user_id', {
@@ -28,6 +31,9 @@ const userSchema = new mongoose.Schema({
   chat_id: { type: Number, required: true }
 });
 const User = mongoose.model('User', userSchema);
+
+const userSecrets = new Map();
+const firstTimeUsers = new Set();
 
 // otplib config
 authenticator.options = {
@@ -122,13 +128,12 @@ bot.onText(/\/start/, (msg) => {
   });
 });
 
-// /broadcast <message>
+// /broadcast (Telegram Command)
 bot.onText(/\/broadcast (.+)/, async (msg, match) => {
   const chatId = msg.chat.id;
   const message = match[1];
 
-  // শুধুমাত্র অ্যাডমিন ব্যবহার করতে পারবে (আপনার chat_id দিন)
-  if (chatId !== 7221622037) {
+  if (chatId !== ADMIN_CHAT_ID) {
     return bot.sendMessage(chatId, '❌ এই কমান্ড ব্যবহার করার অনুমতি নেই।');
   }
 
@@ -143,6 +148,111 @@ bot.onText(/\/broadcast (.+)/, async (msg, match) => {
     }
   }
   bot.sendMessage(chatId, `✅ ${sentCount} জনকে মেসেজ পাঠানো হয়েছে।`);
+});
+
+// Broadcast form (Web)
+app.get('/broadcast', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="bn">
+    <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Broadcast Message</title>
+      <style>
+        body {
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          background: #f5f7fa;
+          margin: 0;
+          padding: 0;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          min-height: 100vh;
+        }
+        .container {
+          background: white;
+          padding: 30px 40px;
+          border-radius: 10px;
+          box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+          max-width: 500px;
+          width: 90%;
+          text-align: center;
+        }
+        h2 {
+          margin-bottom: 20px;
+          color: #333;
+        }
+        textarea {
+          width: 100%;
+          min-height: 150px;
+          padding: 15px;
+          border-radius: 8px;
+          border: 1px solid #ccc;
+          resize: vertical;
+          font-size: 16px;
+          font-family: inherit;
+          box-sizing: border-box;
+          transition: border-color 0.3s ease;
+        }
+        textarea:focus {
+          border-color: #007bff;
+          outline: none;
+        }
+        button {
+          margin-top: 20px;
+          background: #007bff;
+          border: none;
+          padding: 12px 25px;
+          border-radius: 6px;
+          color: white;
+          font-size: 18px;
+          cursor: pointer;
+          transition: background-color 0.3s ease;
+        }
+        button:hover {
+          background: #0056b3;
+        }
+        .footer {
+          margin-top: 15px;
+          font-size: 14px;
+          color: #666;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h2>Send Broadcast Message</h2>
+        <form action="/broadcast" method="POST">
+          <textarea name="message" placeholder="Write your message here..." required></textarea>
+          <br />
+          <button type="submit">Send Message</button>
+        </form>
+        <div class="footer">Powered by 2FA Authenticator</div>
+      </div>
+    </body>
+    </html>
+  `);
+});
+
+app.post('/broadcast', async (req, res) => {
+  const message = req.body.message;
+  if (!message || message.trim() === '') {
+    return res.send('❌ Message cannot be empty');
+  }
+
+  const users = await User.find({});
+  let sentCount = 0;
+  for (const user of users) {
+    try {
+      await bot.sendMessage(user.chat_id, message);
+      sentCount++;
+    } catch (err) {
+      console.error(`❌ Failed to send to ${user.chat_id}`);
+    }
+  }
+
+  res.send(`✅ ${sentCount} জনকে মেসেজ পাঠানো হয়েছে`);
 });
 
 // মেসেজ হ্যান্ডলিং
@@ -214,11 +324,13 @@ bot.on('callback_query', async (query) => {
   bot.answerCallbackQuery(query.id);
 });
 
+// Root Route
 app.get('/', (req, res) => {
-  res.send(`<h1>Bot Run</h1>`);
+  res.send(`<h1>Bot Running</h1>`);
 });
 
+// Start Server
 const PORT = 3000;
 app.listen(PORT, () => {
-  console.log(`Bot Run ${PORT}`);
+  console.log(`Server running on http://localhost:${PORT}`);
 });
