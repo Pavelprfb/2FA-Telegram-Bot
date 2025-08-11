@@ -17,7 +17,7 @@ const userSecrets = new Map();
 const firstTimeUsers = new Set();
 
 // MongoDB কানেকশন
-mongoose.connect('mongodb+srv://MyDatabase:Cp8rNCfi15IUC6uc@cluster0.kjbloky.mongodb.net/telegram_id', {
+mongoose.connect('mongodb+srv://MyDatabase:Cp8rNCfi15IUC6uc@cluster0.kjbloky.mongodb.net/2fa_user_id', {
   useNewUrlParser: true,
   useUnifiedTopology: true
 }).then(() => console.log('✅ MongoDB Connected'))
