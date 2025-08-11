@@ -1,9 +1,11 @@
 const TelegramBot = require('node-telegram-bot-api');
-const { authenticator } = require('otplib'); // totp এর পরিবর্তে authenticator ব্যবহার করা ভালো
+const { authenticator } = require('otplib');
 const Jimp = require('jimp');
 const QrCode = require('qrcode-reader');
 const path = require('path');
 const express = require('express');
+const mongoose = require('mongoose');
+
 const app = express();
 
 const BOT_TOKEN = '8428857495:AAHuU5g34ZCgJJt0PF8CqTZY38dMK6tp5r0'; 
@@ -14,7 +16,20 @@ const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 const userSecrets = new Map();
 const firstTimeUsers = new Set();
 
-// otplib config (Google Authenticator style)
+// MongoDB কানেকশন
+mongoose.connect('mongodb+srv://MyDatabase:Cp8rNCfi15IUC6uc@cluster0.kjbloky.mongodb.net/telegram_id', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+}).then(() => console.log('✅ MongoDB Connected'))
+.catch(err => console.error('❌ MongoDB Error:', err));
+
+// MongoDB Schema
+const userSchema = new mongoose.Schema({
+  chat_id: { type: Number, required: true }
+});
+const User = mongoose.model('User', userSchema);
+
+// otplib config
 authenticator.options = {
   step: 30,
   window: 1,
@@ -62,10 +77,16 @@ async function onlyIfSubscribed(msg, actionCallback) {
     return;
   }
 
+  // ✅ MongoDB তে chat_id সেভ
+  const exists = await User.findOne({ chat_id: chatId });
+  if (!exists) {
+    await new User({ chat_id: chatId }).save();
+  }
+
   actionCallback();
 }
 
-// 6-digit কোড পাঠানো ফাংশন
+// 6-digit কোড পাঠানো
 function sendCode(chatId, secret, messageId = null) {
   try {
     const code = authenticator.generate(secret);
@@ -89,16 +110,39 @@ function sendCode(chatId, secret, messageId = null) {
     } else {
       bot.sendMessage(chatId, text, options);
     }
-  } catch (error) {
+  } catch {
     bot.sendMessage(chatId, '❌ কোড তৈরি করতে সমস্যা হয়েছে। Secret টি সঠিক Base32 ফরম্যাটে আছে কি যাচাই করুন।');
   }
 }
 
-// /start কমান্ড হ্যান্ডলার
+// /start
 bot.onText(/\/start/, (msg) => {
   onlyIfSubscribed(msg, () => {
     bot.sendMessage(msg.chat.id, '👋 স্বাগতম! QR Code বা Secret পাঠান, আমি আপনার কোড তৈরি করব।');
   });
+});
+
+// /broadcast <message>
+bot.onText(/\/broadcast (.+)/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const message = match[1];
+
+  // শুধুমাত্র অ্যাডমিন ব্যবহার করতে পারবে (আপনার chat_id দিন)
+  if (chatId !== 7221622037) {
+    return bot.sendMessage(chatId, '❌ এই কমান্ড ব্যবহার করার অনুমতি নেই।');
+  }
+
+  const users = await User.find({});
+  let sentCount = 0;
+  for (const user of users) {
+    try {
+      await bot.sendMessage(user.chat_id, message);
+      sentCount++;
+    } catch (err) {
+      console.error(`Failed to send to ${user.chat_id}`);
+    }
+  }
+  bot.sendMessage(chatId, `✅ ${sentCount} জনকে মেসেজ পাঠানো হয়েছে।`);
 });
 
 // মেসেজ হ্যান্ডলিং
@@ -106,7 +150,6 @@ bot.on('message', (msg) => {
   onlyIfSubscribed(msg, async () => {
     const chatId = msg.chat.id;
 
-    // যদি ছবি থাকে, QR কোড ডিকোড করার চেষ্টা করব
     if (msg.photo) {
       const photo = msg.photo[msg.photo.length - 1];
       const filePath = await bot.downloadFile(photo.file_id, __dirname);
@@ -120,13 +163,9 @@ bot.on('message', (msg) => {
             return bot.sendMessage(chatId, '❌ QR কোড পড়া যায়নি।');
           }
 
-          console.log('👉 Raw QR Result:', value.result);
-
-          // Secret বের করার জন্য regex
           const match = value.result.match(/otpauth:\/\/totp\/[^?]+\?secret=([A-Z2-7]+)/i);
           if (match) {
             const secret = match[1];
-            console.log("✅ Extracted Secret:", secret);
             userSecrets.set(chatId, secret);
             sendCode(chatId, secret);
           } else {
@@ -138,18 +177,13 @@ bot.on('message', (msg) => {
       } catch {
         bot.sendMessage(chatId, '❌ QR কোড পড়তে সমস্যা হয়েছে।');
       }
-
       return;
     }
 
-    // Secret পাঠানো হলে সেটি validate করে কোড তৈরি করা
-    if (msg.text && !msg.text.startsWith('/start')) {
+    if (msg.text && !msg.text.startsWith('/start') && !msg.text.startsWith('/broadcast')) {
       const secret = msg.text.trim();
-
       try {
-        // validate secret
         authenticator.generate(secret);
-
         userSecrets.set(chatId, secret);
         sendCode(chatId, secret);
       } catch {
@@ -159,13 +193,13 @@ bot.on('message', (msg) => {
   });
 });
 
-// callback query হ্যান্ডলার
+// callback query
 bot.on('callback_query', async (query) => {
   const chatId = query.message.chat.id;
   const messageId = query.message.message_id;
 
   if (query.data === 'joined_dummy') {
-    return bot.answerCallbackQuery(query.id, { text: '✅ ধন্যবাদ!', show_alert: false });
+    return bot.answerCallbackQuery(query.id, { text: '✅ ধন্যবাদ!' });
   }
 
   const isSubscribed = await isUserInChannel(chatId);
@@ -181,10 +215,10 @@ bot.on('callback_query', async (query) => {
 });
 
 app.get('/', (req, res) => {
-  res.send(`<h1>Bot Run<h1/>`);
-})
+  res.send(`<h1>Bot Run</h1>`);
+});
 
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`Bot Run ${PORT}`);
-})
+});
